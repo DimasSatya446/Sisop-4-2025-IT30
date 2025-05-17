@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  antink-server:
+    build: .
+    container_name: antink-server
+    devices:
+      - "/dev/fuse:/dev/fuse"
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ./it24_host:/mnt/it24_host         
+      - ./antink_mount:/mnt/antink_mount   
+      - ./antink-logs:/mnt/antink-logs:rw  
+      - it24log:/var/log                   
+    command: ["-f", "/mnt/antink_mount"]
+
+  antink-logger:
+    image: busybox
+    container_name: antink-logger
+    volumes:
+      - it24log:/var/log:ro
+    command: ["sh", "-c", "tail -f /var/log/it24.log"]
+
+volumes:
+  it24log:
