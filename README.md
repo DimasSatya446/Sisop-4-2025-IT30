@@ -185,6 +185,8 @@ volumes:
   it24log:
 ```
 - Mendefinisikan volume bernama `it24log` secara eksplisit agar bisa dipakai oleh dua container (`antink-server` & `antink-logger`).
+  
+---
 
 ## antink.c
 ### Variabel Global
