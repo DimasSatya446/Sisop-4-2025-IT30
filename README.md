@@ -13,7 +13,532 @@
 ---
 
 ## soal_1
-a
+> The Shorekeeper adalah sebuah entitas misterius yang memimpin dan menjaga Black Shores secara keseluruhan. Karena Shorekeeper hanya berada di Black Shores, ia biasanya berjalan - jalan di sekitar Black Shores untuk mencari anomali - anomali yang ada untuk mencegah adanya kekacauan ataupun krisis di Black Shores. Semenjak kemunculan Fallacy of No Return, ia semakin ketat dalam melakukan pencarian anomali - anomali yang ada di Black Shores untuk mencegah hal yang sama terjadi lagi.   
+Suatu hari, saat di Tethys' Deep, Shorekeeper menemukan sebuah anomali yang baru diketahui. Anomali ini berupa sebuah teks acak yang kelihatannya tidak memiliki arti. Namun, ia mempunyai ide untuk mencari arti dari teks acak tersebut.
+[Author: Haidar / scar / hemorrhager / 恩赫勒夫]
+
+a. Pertama, Shorekeeper akan mengambil beberapa sampel anomali teks dari link berikut. Pastikan file zip terhapus setelah proses unzip.
+> on revision
+```sh
+const char *DOWNLOAD_URL = "https://drive.usercontent.google.com/u/0/uc?id=1hi_GDdP51Kn2JJMw02WmCOxuc3qrXzh5&export=download ";
+...
+void run_command(const char *cmd[]) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execvp(cmd[0], (char *const *)cmd);  // Casting diperlukan karena execvp butuh char *const[]
+        perror("execvp gagal");
+        exit(EXIT_FAILURE);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
+```
+- Fungsi ini menerima array pointer ke string `(cmd[])` yang berisi command dan argumennya
+- `pid_t pid = fork()` - Membuat proses child baru
+- Dalam `child process (pid == 0)`:
+  - `execvp()` menjalankan command yang diberikan
+  - Parameter pertama: nama program `(cmd[0])`
+  - Parameter kedua: array argumen program
+  - `perror()` akan dieksekusi jika execvp gagal
+  - `exit(EXIT_FAILURE)` mengakhiri child process jika gagal
+- Dalam parent process:
+  - `waitpid()` menunggu child process selesai
+  - status menyimpan status exit dari child process
+```sh
+void download_then_unzip() {
+    struct stat st;
+
+    if (stat(ANOMALI_DIR, &st) == 0 && S_ISDIR(st.st_mode)) {
+        printf("Direktori %s sudah ada, skip download.\n", ANOMALI_DIR);
+        return;
+    }
+
+    printf("Downloading ZIP...\n");
+
+    const char *wget_cmd[] = {"wget", DOWNLOAD_URL, "-O", ZIP_FILE, NULL};
+    run_command(wget_cmd);
+
+    const char *unzip_cmd[] = {"unzip", ZIP_FILE, "-d", ".", NULL};
+    run_command(unzip_cmd);
+
+    unlink(ZIP_FILE);
+
+    printf("Download dan ekstraksi selesai.\n");
+}
+
+int main(int argc, char* argv[]) {
+    ...
+    download_then_unzip();         // Panggil fungsinya untuk download > unzip
+    ...
+
+    return fuse_main(argc, argv, &hexed_oper, NULL);
+}
+```
+- Pengecekan Direktori:
+  - `struct stat st` - Struktur untuk menyimpan informasi file
+  - `stat(ANOMALI_DIR, &st)` - Mengecek status direktori anomali
+  - `S_ISDIR(st.st_mode)` - Memastikan path adalah direktori
+  - Jika direktori sudah ada, fungsi return tanpa melakukan apa-apa
+- Download File:
+  - Membuat array command wget:
+  - `"wget"` - Program downloader
+  - `DOWNLOAD_URL` - URL file yang akan didownload
+  - `"-O"` - Option untuk output file
+  - `ZIP_FILE` - Nama file output ("anomali.zip")
+  - NULL - Penanda akhir array
+- Ekstrak File:
+  - Membuat array command unzip:
+  - `"unzip"` - Program ekstraksi
+  - `ZIP_FILE` - File yang akan diekstrak
+  - `"-d"` - Option untuk direktori tujuan
+  - `"."` - Ekstrak ke direktori saat ini
+  - `NULL` - Penanda akhir array
+- Cleanup:
+  - `unlink(ZIP_FILE)` - Menghapus file zip setelah selesai diekstrak
+  - Menampilkan pesan selesai
+
+b. Setelah melihat teks - teks yang didapatkan, ia menyadari bahwa format teks tersebut adalah hexadecimal. Dengan informasi tersebut, Shorekeeper mencoba untuk mencoba idenya untuk mencari makna dari teks - teks acak tersebut, yaitu dengan mengubahnya dari string hexadecimal menjadi sebuah file image. Bantulah Shorekeeper dengan membuat kode untuk mengubah string hexadecimal menjadi sebuah gambar ketika file text tersebut dibuka. Lalu, letakkan hasil gambar yang didapat ke dalam directory bernama “image”.
+```sh
+#define ANOMALI_DIR "anomali"
+#define IMAGE_DIR "anomali/image"
+```
+- Konstanta path direktori:
+  - ANOMALI_DIR: Direktori tempat file .txt disimpan.
+  - IMAGE_DIR: Direktori hasil konversi gambar.
+
+```
+unsigned char* hex_to_binary(const char* hex, size_t* out_len) {
+    size_t len = strlen(hex);
+    if (len % 2 != 0) {
+        fprintf(stderr, "Invalid hex string length\n");
+        return NULL;
+    }
+
+    *out_len = len / 2;
+    unsigned char* binary = malloc(*out_len);
+    if (!binary) {
+        perror("malloc");
+        return NULL;
+    }
+
+    for (size_t i = 0; i < len; i += 2) {
+        char byte_str[3] = {hex[i], hex[i + 1], '\0'};
+        int val = strtol(byte_str, NULL, 16);
+        binary[i / 2] = (unsigned char)val;
+    }
+
+    return binary;
+}
+```
+- Mengubah string hex ke data biner.
+- Memastikan panjang genap dan alokasi memori cukup.
+- Setiap 2 karakter hex dikonversi ke 1 byte biner.
+
+```
+// Simpan data biner sebagai file .png
+void save_binary_to_png(const unsigned char* data, size_t bin_len, const char* filename) {
+    FILE* fp = fopen(filename, "wb");
+    if (!fp) {
+        perror("fopen png");
+        return;
+    }
+
+    fwrite(data, 1, bin_len, fp);
+    fclose(fp);
+}
+
+// Buat direktori jika belum ada
+void create_dir_if_not_exists(const char* path) {
+    struct stat st = {0};
+    if (stat(path, &st) == -1) {
+        #ifdef _WIN32
+            _mkdir(path);
+        #else
+            mkdir(path, 0777);
+        #endif
+    }
+}
+
+// --- FUSE Operations ---
+static int hexed_getattr(const char* path, struct stat* stbuf, struct fuse_file_info *fi) {
+    (void)fi;
+    memset(stbuf, 0, sizeof(struct stat));
+
+    if (strcmp(path, "/") == 0) {
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+        return 0;
+    }
+
+    // Cek apakah adalah file txt
+    if (strstr(path, ".txt")) {
+        stbuf->st_mode = S_IFREG | 0444;
+        stbuf->st_nlink = 1;
+        stbuf->st_size = 0;
+
+        // Baca ukuran asli file txt untuk lebih akurat
+        char full_path[256];
+        snprintf(full_path, sizeof(full_path), "%s%s.txt", ANOMALI_DIR, path + 1);
+        FILE* f = fopen(full_path, "r");
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            stbuf->st_size = ftell(f) / 2; // Hex -> Binary
+            fclose(f);
+        }
+
+        return 0;
+    }
+
+    // Untuk direktori image
+    char full_path[256];
+    snprintf(full_path, sizeof(full_path), "%s%s", ANOMALI_DIR, path);
+    if (access(full_path, F_OK) == 0) {
+        struct stat s;
+        if (stat(full_path, &s) == -1) return -errno;
+        *stbuf = s;
+        return 0;
+    }
+
+    return -ENOENT;
+}
+```
+- Fungsi ini digunakan untuk mendapatkan atribut file/direktori (seperti ukuran, jenis file, permission, dsb).
+- `(void)fi;` → Menyembunyikan warning karena parameter tidak digunakan.
+- `memset(stbuf, 0, sizeof(struct stat));` → Reset buffer stat agar kosong sebelum diisi.
+- Jika path adalah /, maka:
+  - Mode: Direktori `(S_IFDIR)` dengan permission `rwxr-xr-x.`
+  - Link count: 2 (karena direktori selalu memiliki link ke dirinya sendiri dan .).
+- Jika path berakhiran `.txt`, asumsikan itu adalah file regular.
+- Mode: Regular file `(S_IFREG)` dengan permission read-only (0444).
+- Ukuran file dihitung sebagai setengah panjang file teks, karena tiap 2 karakter hex = 1 byte biner.
+- Jika path cocok dengan file/folder nyata di `ANOMALI_DIR`, salin atribut aslinya.
+- Jika tidak ditemukan, kembalikan error `-ENOENT`.
+
+```sh
+static int hexed_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
+                         off_t offset, struct fuse_file_info* fi, enum fuse_readdir_flags flags) {
+    (void)offset; (void)fi; (void)flags;
+
+    filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);
+
+    if (strcmp(path, "/") == 0) {
+        for (int i = 1; i <= 7; i++) {
+            char name[256];
+            snprintf(name, sizeof(name), "%d.txt", i);
+            filler(buf, name, NULL, 0);
+        }
+        filler(buf, "image", NULL, 0);
+        return 0;
+    }
+
+    // Untuk direktori image
+    if (strcmp(path, "/image") == 0) {
+        DIR* dir = opendir(IMAGE_DIR);
+        if (!dir) return -errno;
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != NULL) {
+            filler(buf, entry->d_name, NULL, 0);
+        }
+        closedir(dir);
+        return 0;
+    }
+
+    return -ENOENT;
+}
+```
+- Fungsi untuk membaca isi direktori.
+- Parameter tidak digunakan, disembunyikan dengan `(void)`.
+- `    filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);` Setiap direktori harus memiliki entry untuk . (dir sendiri) dan .. (parent).
+- Jika path adalah `/`, tampilkan file `1.txt` sampai `7.txt` dan folder `image`.
+- Buka direktori fisik `anomali/image/` dan tambahkan semua isinya ke buffer.
+
+```sh
+static int hexed_open(const char* path, struct fuse_file_info* fi) {
+    if (!strstr(path, ".txt")) return -EINVAL;
+    return 0;
+}
+```
+- Memastikan hanya file dengan ekstensi `.txt` yang bisa dibuka.
+- Jika bukan `.txt`, kembalikan error -EINVAL (invalid argument).
+```sh
+static int hexed_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
+    if (!strstr(path, ".txt")) return -EINVAL;
+
+    char* filename = strrchr(path, '/') ? strrchr(path, '/') + 1 : (char*)path + 1;
+
+    char full_txt_path[256];
+    snprintf(full_txt_path, sizeof(full_txt_path), "%s/%s", ANOMALI_DIR, filename);
+
+    FILE* txt_file = fopen(full_txt_path, "r");
+    if (!txt_file) return -errno;
+
+    char hex_buffer[10240];
+    size_t hex_len = fread(hex_buffer, 1, sizeof(hex_buffer), txt_file);
+    fclose(txt_file);
+
+    if (hex_len == 0) return 0;
+
+    size_t bin_len;
+    unsigned char* binary = hex_to_binary(hex_buffer, &bin_len);
+    if (!binary) return -EINVAL;
+
+    // Simpan gambar di folder image
+    char* timestamp = get_timestamp();
+    char image_path[256];
+    snprintf(image_path, sizeof(image_path), "%s/%s_image_%s.png", IMAGE_DIR, filename, timestamp);
+
+    create_dir_if_not_exists(IMAGE_DIR);
+    save_binary_to_png(binary, bin_len, image_path);
+    log_conversion(filename, image_path);
+
+    // Salin binary ke buffer fuse (bisa juga gunakan hex_buffer tergantung tujuan)
+    size_t len = (offset + size > bin_len) ? bin_len - offset : size;
+    memcpy(buf, binary + offset, len);
+
+    free(binary);
+    free(timestamp);
+
+    return len;
+}
+```
+- Hanya izinkan pembacaan file `.txt`.
+- `    char* filename = strrchr(path, '/') ? strrchr(path, '/') + 1 : (char*)path + 1;` Ekstrak nama file dari path (misal: /1.txt → 1.txt).
+- Buka file asli di `anomali/`.
+- Baca isi file ke buffer `hex_buffer`.
+- Jika file kosong, kembalikan 0. Gunakan fungsi `hex_to_binary()` untuk konversi.
+- `snprintf(image_path, sizeof(image_path), "%s/%s_image_%s.png", IMAGE_DIR, filename, timestamp);` Generate nama file gambar unik menggunakan timestamp.
+- Simpan file PNG.
+- Tulis log konversi.
+- Salin data biner ke buffer FUSE agar bisa dibaca oleh user.
+- Bebaskan memori alokasi `binary` dan `timestamp`.
+```sh
+// --- FUSE Ops ---
+static struct fuse_operations hexed_oper = {
+    .getattr = hexed_getattr,
+    .readdir = hexed_readdir,
+    .open = hexed_open,
+    .read = hexed_read,
+};
+```
+- Daftar fungsi operasi FUSE yang akan digunakan oleh filesystem virtual.
+c. Untuk penamaan file hasil konversi dari string ke image adalah [nama file string]_image_[YYYY-mm-dd]_[HH:MM:SS].
+Contoh:
+1_image_2025-05-11_18:35:26.png
+```sh
+//in hexed_read
+// Simpan gambar di folder image
+    char* timestamp = get_timestamp();
+    char image_path[256];
+    snprintf(image_path, sizeof(image_path), "%s/%s_image_%s.png", IMAGE_DIR, filename, timestamp);
+```
+d. Catat setiap konversi yang ada ke dalam sebuah log file bernama conversion.log. Untuk formatnya adalah sebagai berikut.
+[YYYY-mm-dd][HH:MM:SS]: Successfully converted hexadecimal text [nama file string] to [nama file image].
+```sh
+char* get_timestamp() {
+    time_t rawtime;
+    struct tm* timeinfo;
+    char* buffer = malloc(30);
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    strftime(buffer, 30, "%Y-%m-%d_%H:%M:%S", timeinfo);
+    return buffer;
+}
+```
+- `time_t`: Tipe data standar C untuk menyimpan waktu (biasanya dalam detik sejak epoch).
+- `rawtime`: Variabel untuk menyimpan waktu saat ini.
+- `struct tm`: Struktur C yang menyimpan informasi waktu dalam bentuk terurai (tahun, bulan, hari, jam, menit, detik, dst).
+- `char* buffer = malloc(30);` Alokasi memori untuk menyimpan string timestamp.
+- timeinfo = localtime(&rawtime);
+- `strftime(buffer, 30, "%Y-%m-%d_%H:%M:%S", timeinfo);` Fungsi `strftime()` mengonversi waktu dari `timeinfo ke` string sesuai format yang ditentukan.
+
+```sh
+// Simpan log konversi
+void log_conversion(const char* input_file, const char* output_file) {
+    char* timestamp = get_timestamp();
+    FILE* log = fopen(LOG_FILE, "a");
+    if (!log) {
+        perror("fopen log");
+        free(timestamp);
+        return;
+    }
+
+    fprintf(log, "[%s]: Successfully converted hexadecimal text %s to %s\n",
+            timestamp, input_file, output_file);
+
+    fclose(log);
+    free(timestamp);
+}
+```
+- `char* timestamp = get_timestamp();` Mendapatkan timestamp menggunakan fungsi `get_timestamp()`.
+- `FILE* log = fopen(LOG_FILE, "a");` Membuka file log dengan mode append `("a")`
+- Jika pembukaan file gagal (misalnya karena izin atau direktori tidak ada):
+  - Tampilkan pesan error via `perror`.
+  - Bebaskan memori `timestamp`.
+  - Keluar dari fungsi.
+- `fprintf(log, "[%s]: Successfully converted hexadecimal text %s to %s\n",
+        timestamp, input_file, output_file);` Menulis entri log ke file dengan format yang diinginkan.
+### Revisi
+Perubahan logic fungsi untuk mengubah file `.txt` ke `image`
+```sh
+void convert_hex_to_image(const char *filename_txt) {
+    FILE *input = fopen(filename_txt, "r");
+    if (!input) return;
+
+    const char *basename = strrchr(filename_txt, '/');
+    basename = (basename) ? basename + 1 : filename_txt;
+
+    char name_only[64] = {0};
+    strncpy(name_only, basename, strcspn(basename, "."));
+
+    char date[16], time[16];
+    get_timestamp(date, sizeof(date), time, sizeof(time));
+
+    // Buat direktori image
+    struct stat st = {0};
+    if (stat(IMAGE_DIR, &st) == -1) {
+        #ifdef _WIN32
+            _mkdir(IMAGE_DIR);
+        #else
+            mkdir(IMAGE_DIR, 0755);
+        #endif
+    }
+
+    char output_path[256];
+    snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR, name_only, date, time);
+    FILE *output = fopen(output_path, "wb");
+    if (!output) {
+        fclose(input);
+        return;
+    }
+
+    char hex[3];
+    int c, count = 0;
+    while ((c = fgetc(input)) != EOF) {
+        if (isxdigit(c)) {
+            hex[count++] = c;
+            if (count == 2) {
+                hex[2] = '\0';
+                unsigned char byte = strtol(hex, NULL, 16);
+                fwrite(&byte, 1, 1, output);
+                count = 0;
+            }
+        }
+    }
+
+    fclose(input);
+    fclose(output);
+
+    log_conversion(basename, output_path, date, time);
+}
+```
+- Membuka File Input `FILE *input = fopen(filename_txt, "r");
+if (!input) return;`
+  - Membuka file teks untuk dibaca
+  - Return jika gagal membuka file
+- ```
+  const char *basename = strrchr(filename_txt, '/');
+  basename = (basename) ? basename + 1 : filename_txt;
+  char name_only[64] = {0};
+  strncpy(name_only, basename, strcspn(basename, "."));
+  ```
+  - Mengambil nama file dari path lengkap
+  - Menghapus ekstensi file
+- Membuat Timestamp
+  ```
+  char date[16], time[16];
+  get_timestamp(date, sizeof(date), time, sizeof(time));
+  ```
+  - Mengambil tanggal dan waktu saat ini untuk nama file
+- Membuat Direktori Output
+  ```
+  struct stat st = {0};
+  if (stat(IMAGE_DIR, &st) == -1) {
+    #ifdef _WIN32
+        _mkdir(IMAGE_DIR);
+    #else
+        mkdir(IMAGE_DIR, 0755);
+    #endif
+  }
+  ```
+  - Mengecek dan membuat direktori image jika belum ada
+  - Menggunakan kondisional kompilasi untuk Windows/Unix
+- Membuat dan Membuka File Output
+  ```
+  char output_path[256];
+  snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR,
+  name_only, date, time);
+  FILE *output = fopen(output_path, "wb");
+  ```
+  - Membuat nama file output dengan format: `[nama]_image_[tanggal]_[waktu].png`
+  - Membuka file dalam mode binary write
+- Proses Konversi
+  ```
+  char hex[3];
+  int c, count = 0;
+  while ((c = fgetc(input)) != EOF) {
+    if (isxdigit(c)) {
+        hex[count++] = c;
+        if (count == 2) {
+            hex[2] = '\0';
+            unsigned char byte = strtol(hex, NULL, 16);
+            fwrite(&byte, 1, 1, output);
+            count = 0;
+        }
+    }
+  }
+    ```
+  - Membaca file input karakter per karakter
+  - Mengumpulkan 2 karakter hex
+  - Mengkonversi hex ke byte
+  - Menulis byte ke file output
+- Cleanup dan Logging
+  ```
+  fclose(input);
+  fclose(output);
+  log_conversion(basename, output_path, date, time);
+    ```
+```sh
+// Proses semua file txt di anomali/
+void process_all_files() {
+    DIR *dir = opendir(ANOMALI_DIR);
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, ".txt")) {
+            char full_path[256];
+            snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
+            convert_hex_to_image(full_path);
+        }
+    }
+    closedir(dir);
+}
+```
+- Iterasi file
+  ```
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strstr(entry->d_name, ".txt")) {
+        char full_path[256];
+        snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
+        convert_hex_to_image(full_path);
+    }
+  }
+    ```
+- Membaca setiap entry dalam direktori
+- Mencari file dengan ekstensi `.txt`
+- Membuat path lengkap untuk setiap file
+- Memanggil `convert_hex_to_image()` untuk setiap file `.txt`
+
+### Output after revisi
+![image](https://github.com/user-attachments/assets/c6888ce9-e31e-41b8-ae66-6f3647e9ecd4)
+
+![image](https://github.com/user-attachments/assets/31fa833b-43da-475b-9cbb-156971cffef1)
+
 
 ---
 
