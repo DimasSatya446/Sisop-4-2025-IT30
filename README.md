@@ -468,3 +468,9 @@ a
 ---
 
 ## Revisi
+### Revisi soal_3
+sebelum:
+Tidak dapat melihat isi dari it24_host tanpa mount
+Setelah:
+![alt text](https://github.com/DimasSatya446/GambarSISOP2/blob/main/Screenshot%202025-05-21%20085037.png)
+Dapat melihat isi dari it24_host tanpa mount. Sebelumnya tidak bisa karna salah command
