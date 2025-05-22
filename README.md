@@ -11,3 +11,25 @@
 | 3  | Dimas Satya Andhika              | 5027241032 |
 
 ---
+
+## soal_1
+a
+
+---
+
+## soal_2
+a
+
+---
+
+## soal_3
+a
+
+---
+
+## soal_4
+a
+
+---
+
+## Revisi
