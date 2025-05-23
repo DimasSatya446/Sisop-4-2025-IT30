@@ -836,7 +836,831 @@ int main(int argc, char *argv[]) {
 ---
 
 ## soal_4
-a
+### Maimai Chiho's Areas 💫🌌🌀⛩️
+### Problem:
+
+> **Seperti yang kamu tahu, kamu telah mendapatkan pekerjaan di SEGA sebagai chart designer untuk game maimai. [...], dan kamu pun dipromosikan menjadi administrator untuk sistem *in-game* mereka. Di universe maimai, terdapat suatu mekanisme progres yang bernama chiho, yang merupakan bagian dari suatu [area](https://maimai.sega.jp/area/). Terdapat 7 area di maimai saat ini, dan tugasmu sekarang yaitu memastikan 7 area ini berfungsi sebagaimana mestinya.**
+
+> **NOTE: Implementasikan operasi dasar seperti read, write, create, unlink, getattr, readdir untuk setiap sub-soal.**
+
+> **Implementing FUSE mechanism.**
+
+### Struktur Soal:
+```
+├── chiho/  --> Output fuse_dir/ dari setiap area maimai
+│ 	├── starter/  
+│  	├── metro/  
+│  	├── dragon/ 
+│ 	├── blackrose/  
+│  	├── heaven/  
+│  	└── youth/  
+│  
+└── fuse_dir/  --> Input dari seluruh area maimai untuk chiho
+	├── starter/  --> ekstensi .mai
+	├── metro/  --> enkripsi ccc dan ekstensi .ccc
+	├── dragon/  --> enkripsi ROT13 dan ekstensi .rot
+	├── blackrose/  --> menyimpan data dalam bentuk biner dan ekstensi .bin
+	├── heaven/  --> ekstensi AES-256-CBC dan ekstensi .enc
+	├── youth/  --> kompresi file gzip dan ekstensi .gz
+	└── 7sref/  --> area khusus akses "gateaway" ke area chiho lain 
+```
+---
+### Code's Key Components:
+```
+#define FUSE_USE_VERSION 31
+
+#include <fuse3/fuse.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+[...]
+#include <time.h>
+#include <zlib.h>
+#include <ctype.h>
+```
+Menjadi *library* dan struktur dasar kebutuhan kode secara keseluruhan 	untuk pengoperasian pemrosesan file (`open`, `close`, `read`, `stat`, `zlib`, dll) serta konfigurasi FUSE yang akan digunakan pada proses.
+
+```
+#define STARTER_DIR "/home/aslpet/Sisop/modul4/soal_4/chiho/starter"
+#define STARTER_EXT ".mai"
+#define METRO_DIR   "/home/aslpet/Sisop/modul4/soal_4/chiho/metro"
+#define METRO_EXT ".ccc"
+#define DRAGON_DIR "/home/aslpet/Sisop/modul4/soal_4/chiho/dragon"
+#define DRAGON_EXT ".rot"
+#define BLACKROSE_DIR "/home/aslpet/Sisop/modul4/soal_4/chiho/blackrose"
+[...]
+
+#define HEAVEN_KEY "0123456789abcdef0123456789abcdef"
+#define YOUTH_DIR "/home/aslpet/Sisop/modul4/soal_4/chiho/skystreet"
+#define YOUTH_EXT ".gz"
+```
+Berfungsi dalam mendefinisikan *directory path* yang akan digunakan pada setiap `/fuse_dir/` dengan `/chiho/` untuk mencocokkan file terhadap area tertentu serta ekstensi *.file* yang ada pada setiap area chiho yang akan memproses file secara khusus, dengan mekanisme utama sebagai berikut:
+
+-   `*_DIR` adalah path direktori asli di sistem file nyata.
+    
+-   `*_EXT` adalah ekstensi file di setiap area.
+    
+```
+static int sref_getattr(const char *relpath, struct stat *stbuf);
+static int sref_readdir(void *buf, fuse_fill_dir_t filler);
+static int sref_read(const char *relpath, char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
+[...]
+
+static int sref_create(const char *relpath, mode_t mode, struct fuse_file_info *fi);
+static int sref_unlink(const char *relpath);
+```
+Berfungsi sebagai handler operasi file untuk direktori virtual / *alias redirector* dari direktori chiho lain ke  `/7sref` (“Prism Chiho”) dalam kode FUSE `maimai_fs.c` dan mempermudah perantara lintas-area pada `/7sref`.
+
+```
+static char* add_extension(const char *dir, const char *path, const char *ext) {
+    char *res = malloc(strlen(dir) + strlen(path) + strlen(ext) + 3);
+    sprintf(res, "%s/%s%s", dir, path, ext);
+    return res;
+}
+
+void apply_rot13(char *buf, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        char c = buf[i];
+        [...]
+        
+    fread(iv, 1, 16, fp);
+    fclose(fp);
+}
+```
+Berfungsi sebagai *helper function* yang akan digunakan dalam pemrosesan file chiho dalam sistem, dengan mekanisme utama sebagai berikut:
+
+-   `add_extension`: bantu gabungkan path virtual dengan direktori & ekstensi asli.
+    
+-   `apply_rot13`: enkripsi/dekripsi ROT13.
+	- Huruf alfabet diubah: `a ↔ n`, `b ↔ o`, ... `z ↔ m`
+    
+	- Non-alfabet diabaikan.
+    
+-   `generate_iv`: buat inisialisasi vektor (IV) 16-byte dari `/dev/urandom` untuk enkripsi AES-256-CBC.
+---
+Secara keseluruhan, pada setiap area chiho memiliki fungsi-fungsi umum yang identik dengan satu sama lain dan diimplementasikan di setiap area, yaitu:
+|Fungsi FUSE dalam Chiho's System|Tujuan|
+|---|---|
+|`*_getattr()`|Mendapatkan metadata file (`stat`)|
+|`*_readdir()`|Menampilkan isi direktori chiho area (list file)|
+|`*_read()`|Membaca isi file dari storage dir. chiho area tertentu ke user|
+|`*_write()`|Menulis data dari user ke storage nyata pada dir. chiho area tertentu|
+|`*_create()`|Membuat file baru di direktori area|
+|`*_unlink()`|Menghapus file dari direktori area|
+
+Lalu, setiap ***chiho's areas*** memiliki fungsi dan implementasi pemrosesan file yang berbeda-beda, yaitu sebagai berikut.
+```
+int starter_getattr(const char *relpath, struct stat *stbuf) {
+    char *fpath = add_extension(STARTER_DIR, relpath, STARTER_EXT);
+    int res = lstat(fpath, stbuf);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+
+int starter_readdir(void *buf, fuse_fill_dir_t filler) {
+    DIR *dp;
+    struct dirent *de;
+
+    dp = opendir(STARTER_DIR);
+    if (dp == NULL) return -errno;
+
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
+
+    while ((de = readdir(dp)) != NULL) {
+        if (strstr(de->d_name, STARTER_EXT)) {
+            char fname[256];
+            size_t len = strlen(de->d_name) - strlen(STARTER_EXT);
+            strncpy(fname, de->d_name, len);
+            fname[len] = '\0';
+            filler(buf, fname, NULL, 0, 0);
+        }
+    }
+
+    closedir(dp);
+    return 0;
+}
+
+[...]
+
+int starter_unlink(const char *relpath) {
+    char *fpath = add_extension(STARTER_DIR, relpath, STARTER_EXT);
+    int res = unlink(fpath);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+```
+Berfungsi sebagai dasar pemrosesan file pada sistem FUSE `maimai_fs` terutama pada area `starter` dengan menyediakan antarmuka virtual pada `/starter/namafile` dalam sistem chiho, yang sudah mencakup pada kesuluruhan fungsi-fungsi umum FUSE area chiho serta menambahkan ekstensi `.mai` dan menyimpan data file biasa tanpa transformasi ataupun encoding/enkripsi. Secara sederhana, mekanisme utamanya bekerja sebagai berikut:
+
+**1. `starter_getattr(const char *relpath, struct stat *stbuf)`**
+
+- Fungsi ini mencocokkan nama file user (misal `lagu`) menjadi `lagu.mai`
+-   Lalu dicek pakai `lstat()` untuk mendapatkan info file nyata
+    
+**2. `starter_readdir(void *buf, fuse_fill_dir_t filler)`**
+
+-   Saat user ketik `ls /starter`, fungsi ini dipanggil.
+-   Dibuka folder asli `/chiho/starter/`
+-   Semua file `.mai` diambil, lalu ekstensi `.mai` disembunyikan agar user hanya lihat nama aslinya
+    
+**3. `starter_read(...)`**
+
+-   Saat user membaca file (`cat /starter/lagu`), fungsi ini dijalankan.
+-   File `lagu.mai` dibuka dan dibaca seperti biasa
+    
+** 4. `starter_write(...)`**
+
+-   Saat user menulis ke file (`echo hello > /starter/catatan`), fungsi ini dipakai.
+-   File `catatan.mai` dibuka, lalu isi file disimpan ke dalamnya.
+-   Tidak dienkripsi, encoding, atau transformasi lainnya — langsung ditulis seperti biasa
+
+#### 5. `starter_create(...)`
+
+-   Saat user membuat file baru, fungsi ini dijalankan.
+-   File dibuat di folder `/chiho/starter/`, nama file ditentukan user dan ekstensi `.mai` ditambahkan otomatis.
+
+#### 6. `starter_unlink(...)`
+-   Hapus file `.mai` dari sistem file nyata menggunakan `unlink()`.
+
+```
+int metro_getattr(const char *relpath, struct stat *stbuf) {
+    char* fpath = add_extension(METRO_DIR, relpath, METRO_EXT);
+    int res = lstat(fpath, stbuf);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+
+int metro_readdir(void *buf, fuse_fill_dir_t filler) {
+    DIR *dp;
+    struct dirent *de;
+
+    dp = opendir(METRO_DIR);
+    if (dp == NULL) return -errno;
+
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
+
+    while ((de = readdir(dp)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+        continue;
+
+        size_t len = strlen(de->d_name);
+        size_t ext_len = strlen(METRO_EXT);
+
+        if (len > ext_len && strcmp(de->d_name + len - ext_len, METRO_EXT) == 0) {
+	        char fname[256];
+	        strncpy(fname, de->d_name, len - ext_len);
+	        fname[len - ext_len] = '\0';
+	        filler(buf, fname, NULL, 0, 0);
+        }
+    }
+    closedir(dp);
+    return 0;
+}
+
+    int metro_read(const char *relpath, char *buf, size_t size, off_t offset) {
+        char* fpath = add_extension(METRO_DIR, relpath, METRO_EXT);
+        int fd = open(fpath, O_RDONLY);
+        if (fd == -1) {
+            free(fpath);
+            return -errno;
+        }
+
+        char *temp = malloc(size);
+        int res = pread(fd, temp, size, offset);
+        close(fd);
+        if (res == -1) {
+            free(temp);
+            free(fpath);
+            return -errno;
+        }
+        [...]
+
+int metro_unlink(const char *relpath) {
+    char* fpath = add_extension(METRO_DIR, relpath, METRO_EXT);
+    int res = unlink(fpath);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+```
+Berfungsi sebagai dasar pemrosesan file pada sistem FUSE `maimai_fs` terutama pada area `metro` dengan menyediakan akses virtual melalui `/metro/<namafile>`  yang sudah mencakup pada kesuluruhan fungsi-fungsi umum FUSE area chiho dengan ekstensi `.ccc` dan menerapkan enkripsi encoding sederhana per-byte pada proses file dalam direktori `metro area`. Secara sederhana, mekanisme utamanya bekerja sebagai berikut: 
+**1. `metro_getattr(const char *relpath, struct stat *stbuf)`**
+
+-   Gabungkan path menjadi `METRO_DIR/namafile.ccc`.
+-   Ambil metadata file dengan `lstat()`.
+
+**2. `metro_readdir(void *buf, fuse_fill_dir_t filler)`**
+
+-   Membuka direktori `metro`.
+-   Filter file dengan ekstensi `.ccc`.
+-   Ekstensi `.ccc` dihilangkan dari output `ls`.
+
+**3. `metro_read(const char *relpath, char *buf, size_t size, off_t offset)`**
+
+-   Buka file `.ccc` → baca data mentah ke buffer sementara.
+-   Tiap byte di-_decode_ dengan:
+	 -	`buf[i] = temp[i] - (i % 256);` 
+
+**4. `metro_write(const char *relpath, const char *buf, size_t size, off_t offset)`**
+
+-   Buat buffer baru `enc`.
+-   Tiap byte di-_encode_:
+	- `enc[i] = buf[i] + (i % 256);` 
+-   Tulis hasil encoding ke file `.ccc`.
+    
+**5. `metro_create(...)`**
+
+-   Buat file `.ccc` baru di direktori `metro`.
+
+**6. `metro_unlink(...)`**
+
+-   Hapus file `.ccc` dari `metro`.
+
+```
+int dragon_getattr(const char *relpath, struct stat *stbuf) {
+    char *fpath = add_extension(DRAGON_DIR, relpath, DRAGON_EXT);
+    int res = lstat(fpath, stbuf);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+
+int dragon_readdir(void *buf, fuse_fill_dir_t filler) {
+    DIR *dp = opendir(DRAGON_DIR);
+    if (!dp) return -errno;
+
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
+
+    struct dirent *de;
+    while ((de = readdir(dp)) != NULL) {
+        if (strstr(de->d_name, DRAGON_EXT)) {
+            char fname[256];
+            size_t len = strlen(de->d_name) - strlen(DRAGON_EXT);
+            strncpy(fname, de->d_name, len);
+            fname[len] = '\0';
+            filler(buf, fname, NULL, 0, 0);
+        }
+    }
+
+    closedir(dp);
+    return 0;
+}
+
+int dragon_open(const char *relpath, struct fuse_file_info *fi) {
+    char *fpath = add_extension(DRAGON_DIR, relpath, DRAGON_EXT);
+    int fd = open(fpath, fi->flags);
+    free(fpath);
+    return fd == -1 ? -errno : 0;
+}
+
+[...]
+    
+int dragon_unlink(const char *relpath) {
+    char *fpath = add_extension(DRAGON_DIR, relpath, DRAGON_EXT);
+    int res = unlink(fpath);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+```
+Berfungsi sebagai dasar pemrosesan file pada sistem FUSE `maimai_fs` terutama pada area `dragon` dengan memberikan antarmuka virtual `/dragon/<namafile>`  yang sudah mencakup pada kesuluruhan fungsi-fungsi umum FUSE area chiho dengan ekstensi `.rot` dan menerapkan enkripsi ROT13 pada proses file dalam direktori `dragon area`. Secara sederhana, mekanisme utamanya bekerja sebagai berikut:
+
+**1. `dragon_getattr(const char *relpath, struct stat *stbuf)`**
+
+-   Gabungkan path → `dragon/namafile.rot`.
+-   Ambil metadata file dengan `lstat()`.
+
+**2. `dragon_readdir(void *buf, fuse_fill_dir_t filler)`**
+
+-   Buka direktori `dragon`.
+-   Ambil hanya file `.rot`.
+-   Strip `.rot` sebelum ditampilkan ke user.
+
+**3. `dragon_read(...)`**
+
+-   Buka dan baca file `.rot` seperti biasa.
+-   Setelah membaca, isi buffer di-_decrypt_ dengan `apply_rot13(buf, size)`:   
+	 -   ROT13 menggeser huruf 13 langkah dalam alfabet (a↔n, b↔o, ..., z↔m).
+    -   Non-alfabet tidak berubah.
+
+**4. `dragon_write(...)`**
+
+-   Data dari user disalin ke buffer, lalu `apply_rot13()` → disimpan ke file.
+
+**5. `dragon_create(...)`**
+
+-   Buat file `.rot` baru di direktori `dragon`.
+
+**6. `dragon_unlink(...)`**
+
+-   Hapus file `.rot` dari sistem file nyata.
+
+```
+int blackrose_getattr(const char *relpath, struct stat *stbuf) {
+    char *fpath = add_extension(BLACKROSE_DIR, relpath, BLACKROSE_EXT);
+    int res = lstat(fpath, stbuf);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+
+int blackrose_readdir(void *buf, fuse_fill_dir_t filler) {
+    DIR *dp = opendir(BLACKROSE_DIR);
+    if (!dp) return -errno;
+
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
+
+    struct dirent *de;
+    while ((de = readdir(dp)) != NULL) {
+        if (strstr(de->d_name, BLACKROSE_EXT)) {
+            char fname[256];
+            size_t len = strlen(de->d_name) - strlen(BLACKROSE_EXT);
+            strncpy(fname, de->d_name, len);
+            fname[len] = '\0';
+            filler(buf, fname, NULL, 0, 0);
+        }
+    }
+
+    closedir(dp);
+    return 0;
+}
+
+int blackrose_open(const char *relpath, struct fuse_file_info *fi) {
+    char *fpath = add_extension(BLACKROSE_DIR, relpath, BLACKROSE_EXT);
+    int fd = open(fpath, fi->flags);
+    free(fpath);
+    return fd == -1 ? -errno : 0;
+}
+
+[...]
+
+int blackrose_unlink(const char *relpath) {
+    char *fpath = add_extension(BLACKROSE_DIR, relpath, BLACKROSE_EXT);
+    int res = unlink(fpath);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+```
+Berfungsi sebagai dasar pemrosesan file pada sistem FUSE `maimai_fs` terutama pada area `blackrose` dengan memberikan antarmuka virtual `/blackrose/<namafile>`  yang sudah mencakup pada kesuluruhan fungsi-fungsi umum FUSE area chiho dengan ekstensi `.bin` dan menyimpan data file biasa dalam format biner dalam direktori `dragon area`. Secara sederhana, mekanisme utamanya bekerja sebagai berikut:
+
+**1. `blackrose_getattr(const char *relpath, struct stat *stbuf)`**
+
+-   Gabungkan path: `blackrose/<relpath>.bin`.
+-   Ambil metadata file via `lstat()`.
+
+**2. `blackrose_readdir(void *buf, fuse_fill_dir_t filler)`**
+
+-   Buka direktori `BLACKROSE_DIR`.
+-   Filter file dengan ekstensi `.bin`.
+-   Strip ekstensi `.bin` sebelum ditampilkan di `ls`.
+
+**3. `blackrose_read(...)`**
+
+-   Buka file `.bin` → baca isinya dengan `pread()` dengan menyimpan dalam format biner.
+
+**4. `blackrose_write(...)`**
+
+-   Tulis data secara langsung ke file `.bin` dengan `pwrite()` dengan menyimpan dalam format biner.
+
+**5. `blackrose_create(...)`**
+
+-   Buat file `.bin` baru di direktori `blackrose`.
+
+**6. `blackrose_unlink(...)`**
+
+-   Hapus file `.bin` dari sistem file nyata.
+
+```
+int heaven_write(const char *relpath, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    (void) fi;
+    if (offset != 0) return -EOPNOTSUPP;
+
+    char *fpath = add_extension(HEAVEN_DIR, relpath, HEAVEN_EXT);
+
+    // Generate IV
+    unsigned char iv[16];
+    generate_iv(iv);
+
+    // Simpan IV di awal file output
+    FILE *fout = fopen(fpath, "wb");
+    if (!fout) {
+        free(fpath);
+        return -errno;
+    }
+    fwrite(iv, 1, 16, fout);
+
+    // Tulis plaintext ke file sementara
+    char tmpin[] = "/tmp/heaven_in_XXXXXX";
+    int fdin = mkstemp(tmpin);
+    if (fdin == -1) {
+        fclose(fout);
+        free(fpath);
+        return -errno;
+    }
+    write(fdin, buf, size);
+    close(fdin);
+
+    // Hex IV
+    char iv_hex[33] = {0};
+    for (int i = 0; i < 16; i++) sprintf(iv_hex + i*2, "%02x", iv[i]);
+
+    // Enkripsi dengan openssl
+    char tmpout[] = "/tmp/heaven_out_XXXXXX";
+    int fdout = mkstemp(tmpout);
+    close(fdout);
+
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+        "openssl enc -aes-256-cbc -K %s -iv %s -in %s -out %s",
+    HEAVEN_KEY, iv_hex, tmpin, tmpout);
+    int enc_res = system(cmd);
+    if (enc_res != 0) {
+        unlink(tmpin);
+        unlink(tmpout);
+        fclose(fout);
+        free(fpath);
+        return -EIO;
+    }
+
+    // Tambahkan ciphertext ke file akhir
+    FILE *fin = fopen(tmpout, "rb");
+    char buf_out[4096];
+    size_t r;
+    while ((r = fread(buf_out, 1, sizeof(buf_out), fin)) > 0) {
+        fwrite(buf_out, 1, r, fout);
+    }
+
+    fclose(fin);
+    fclose(fout);
+    unlink(tmpin);
+    unlink(tmpout);
+    free(fpath);
+    return size;
+}
+
+[...]
+
+int heaven_unlink(const char *relpath) {
+    char *fpath = add_extension(HEAVEN_DIR, relpath, HEAVEN_EXT);
+    int res = unlink(fpath);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+```
+Berfungsi sebagai dasar pemrosesan file pada sistem FUSE `maimai_fs` terutama pada area `heaven` dengan memberikan antarmuka virtual `/heaven/<namafile>`  yang sudah mencakup pada kesuluruhan fungsi-fungsi umum FUSE area chiho dengan ekstensi `.enc` dan menyimpan data file dengan enkripsi dan AES-256-CBC via OpenSSL CLI, serta menyimpan IV  di awal file dalam direktori `heaven area`. Secara sederhana, mekanisme utamanya bekerja sebagai berikut:
+
+**1. `heaven_getattr(...)`**
+
+-   Gabungkan path → `heaven/namafile.enc`.
+-   Ambil metadata dengan `lstat()`.
+
+**2. `heaven_readdir(...)`**
+
+-   Buka direktori `heaven`.
+-   Tampilkan hanya file `.enc`, dan hilangkan `.enc` saat ditampilkan.
+
+**3. `heaven_write(...)`**
+
+**Langkah-langkah:**
+
+1.  **Cek offset**: hanya mendukung `offset == 0`, artinya overwrite total.
+    
+2.  **Generate IV** (16 byte random dari `/dev/urandom`).
+    
+3.  **Simpan IV ke awal file output `.enc`**.
+    
+4.  Simpan plaintext sementara ke `/tmp/heaven_in_XXXXXX`.
+    
+5.  Gunakan `openssl` untuk mengenkripsi dengan AES-256-CBC:
+
+    `openssl enc -aes-256-cbc -K HEAVEN_KEY -iv IV_HEX -in heaven_in -out heaven_out` 
+    
+7.  Tambahkan ciphertext ke file `.enc` setelah IV.
+    
+8.  Hapus file sementara.
+    
+
+**4. `heaven_read(...)`**
+
+**Langkah-langkah:**
+
+1.  **Cek offset**: hanya mendukung `offset == 0`.
+2.  Buka file `.enc` → baca 16 byte pertama sebagai IV.
+3.  Sisanya disimpan ke file `/tmp/heaven_ct_XXXXXX` (ciphertext).
+4.  Gunakan `openssl enc -d` untuk mendekripsi ke `/tmp/heaven_pt_XXXXXX`.
+    
+5.  Baca hasil dekripsi ke buffer dan kirim ke user.
+    
+
+**5. `heaven_create(...)`**
+
+-   Buat file `.enc` kosong di direktori `heaven`.
+
+**6. `heaven_unlink(...)`**
+
+-   Hapus file `.enc` dari direktori `heaven`.
+
+```
+int youth_write(const char *relpath, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    (void) fi;
+    if (offset != 0) return -EOPNOTSUPP;
+
+    char *fpath = add_extension(YOUTH_DIR, relpath, YOUTH_EXT);
+    gzFile gz = gzopen(fpath, "wb");
+    if (!gz) {
+        free(fpath);
+        return -errno;
+    }
+
+    int written = gzwrite(gz, buf, size);
+    gzclose(gz);
+    free(fpath);
+
+    return written == 0 ? -EIO : written;
+}
+
+int youth_read(const char *relpath, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    (void) fi;
+    if (offset != 0) return -EOPNOTSUPP;
+
+    char *fpath = add_extension(YOUTH_DIR, relpath, YOUTH_EXT);
+    gzFile gz = gzopen(fpath, "rb");
+    if (!gz) {
+        free(fpath);
+        return -errno;
+    }
+
+    int read = gzread(gz, buf, size);
+    gzclose(gz);
+    free(fpath);
+
+    return read == -1 ? -EIO : read;
+}
+
+[...]
+
+int youth_unlink(const char *relpath) {
+    char *fpath = add_extension(YOUTH_DIR, relpath, YOUTH_EXT);
+    int res = unlink(fpath);
+    free(fpath);
+    return res == -1 ? -errno : 0;
+}
+```
+Berfungsi sebagai dasar pemrosesan file pada sistem FUSE `maimai_fs` terutama pada area `skystreet` dengan memberikan antarmuka virtual `/skystreet/<namafile>`  yang sudah mencakup pada kesuluruhan fungsi-fungsi umum FUSE area chiho dengan ekstensi `.gz` dan menyimpan data file kompresi dan dekompresi gzip melalui library `zlib` dalam direktori `skystreet area`. Secara sederhana, mekanisme utamanya bekerja sebagai berikut:
+
+**1. `youth_getattr(...)`**
+
+-   Gabungkan path → `skystreet/<namafile>.gz`.
+-   Ambil metadata file dengan `lstat()`.
+
+**2. `youth_readdir(...)`**
+
+-   Buka direktori `skystreet`.
+-   Tampilkan hanya file berakhiran `.gz`, lalu strip ekstensi saat ditampilkan ke user.
+
+**3. `youth_read(...)`**
+
+**Langkah-langkah:**
+
+1.  **Cek offset**: hanya mendukung `offset == 0`.
+2.  Buka file `.gz` dengan `gzopen()` (mode `"rb"`).
+3.  Baca dan dekompresi data ke `buf` menggunakan `gzread()`.
+    
+
+**4. `youth_write(...)`**
+
+Langkah-langkah:
+
+1.  **Cek offset**: hanya mendukung `offset == 0`.
+2.  Buka file `.gz` dengan `gzopen()` (mode `"wb"`).
+3.  Kompresi data dari `buf` ke disk menggunakan `gzwrite()`.
+
+**5. `youth_create(...)`**
+
+-   Buat file `.gz` kosong di direktori `skystreet`.
+
+**6. `youth_unlink(...)`**
+
+-   Hapus file `.gz` dari sistem file nyata.
+
+Sebelum ke `7sref area`, **area `7sref`** harus berada setelah FUSE callbacks karena ia hanya **bekerja sebagai perantara yang membutuhkan fungsi-fungsi utama tersebut untuk berfungsi**, sehingga kode akan memiliki urutan struktural kode lebih modular dan logis. Dengan itu, penggunaan **FUSE Callbacks** akan didahulukan terlebih dahulu disini.
+```
+static int maimai_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi) {
+    (void) fi;
+    const char *relpath;
+    if (strncmp(path, "/starter", 8) == 0 && (path[8] == '/' || path[8] == '\0')) {
+        if (path[8] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        relpath = path + 9;
+        return starter_getattr(relpath, stbuf);
+    } else if (strncmp(path, "/metro", 6) == 0 && (path[6] == '/' || path[6] == '\0')) {
+        if (path[6] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        relpath = path + 7;
+        return metro_getattr(relpath, stbuf);
+    } else if (strncmp(path, "/dragon", 7) == 0 && (path[7] == '/' || path[7] == '\0')) {
+        if (path[7] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        relpath = path + 8;
+        return dragon_getattr(relpath, stbuf);
+    } else if (strncmp(path, "/blackrose", 10) == 0 && (path[10] == '/' || path[10] == '\0')) {
+        if (path[10] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        relpath = path + 11;
+        return blackrose_getattr(relpath, stbuf);
+    } else if (strncmp(path, "/heaven", 7) == 0 && (path[7] == '/' || path[7] == '\0')) {
+        if (path[7] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        relpath = path + 8;
+        return heaven_getattr(relpath, stbuf);
+    } else if (strncmp(path, "/skystreet", 10) == 0 && (path[10] == '/' || path[10] == '\0')) {
+        if (path[10] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        relpath = path + 11;
+        return youth_getattr(relpath, stbuf);
+    } else if (strncmp(path, "/7sref", 6) == 0 && (path[6] == '/' || path[6] == '\0')) {
+        if (path[6] == '\0') {
+            stbuf->st_mode = S_IFDIR | 0755;
+            stbuf->st_nlink = 2;
+            return 0;
+        }
+        
+        [...]
+
+static struct fuse_operations maimai_oper = {
+    .getattr = maimai_getattr,
+    .readdir = maimai_readdir,
+    .open    = maimai_open,
+    .read    = maimai_read,
+    .write   = maimai_write,
+    .create  = maimai_create,
+    .unlink  = maimai_unlink,
+};
+```
+Dalam program `maimai_fs` sendiri, FUSE Callbacks berfungsi untuk mendistribusikan operasi filesystem (`ls`, `cat`, `echo`, dll) ke handler sesuai area chiho-nya (`starter`, `metro`, dst.) secara otomatis saat melakukan aktivitas operasi filesystem / sebagai *router* untuk semua aktivitas file pada `maimai_fs`. Secara sederhana, FUSE Callbacks dalam `maimai_fs` sendiri bertindak sebagai **jembatan** antara aktivitas user dan logika per-area.
+FUSE Callbacks sendiri memiliki struktur sebagai berikut:
+|Callback FUSE|Fungsi|Handler di `maimai_fs.c`|
+|---|---|---|
+|`getattr`|Ambil info file/direktori|`maimai_getattr()`|
+|`readdir`|Baca isi direktori (`ls`)|`maimai_readdir()`|
+|`read`|Baca isi file|`maimai_read()`|
+|`write`|Tulis data ke file|`maimai_write()`|
+|`create`|Buat file baru|`maimai_create()`|
+|`unlink`|Hapus file|`maimai_unlink()`|
+|`open`|Validasi/izin buka file (optional use)|`maimai_open()`|
+
+```
+int parse_7sref_path(const char *relpath, char *area_out, char *file_out) {
+    const char *underscore = strchr(relpath, '_');
+	if (!underscore) return -1;
+
+    size_t area_len = underscore - relpath;
+    strncpy(area_out, relpath, area_len);
+    area_out[area_len] = '\0';
+
+    strcpy(file_out, underscore + 1);
+    return 0;
+}
+
+int sref_getattr(const char *relpath, struct stat *stbuf) {
+    char area[64], file[256];
+    if (parse_7sref_path(relpath, area, file) != 0)
+        return -ENOENT;
+
+    char redirected[512];
+    snprintf(redirected, sizeof(redirected), "/%s/%s", area, file);
+    return maimai_getattr(redirected, stbuf, NULL);
+}
+
+int sref_read(const char *relpath, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    char area[64], file[256];
+    if (parse_7sref_path(relpath, area, file) != 0)
+        return -ENOENT;
+
+    char redirected[512];
+    snprintf(redirected, sizeof(redirected), "/%s/%s", area, file);
+    return maimai_read(redirected, buf, size, offset, fi);
+}
+
+int sref_write(const char *relpath, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    char area[64], file[256];
+    if (parse_7sref_path(relpath, area, file) != 0)
+            return -ENOENT;
+
+    char redirected[512];
+    snprintf(redirected, sizeof(redirected), "/%s/%s", area, file);
+    return maimai_write(redirected, buf, size, offset, fi);
+}
+
+[...]
+
+            char combined[512];
+            snprintf(combined, sizeof(combined), "%s_%s", areas[i].prefix, stripped);
+            filler(buf, combined, NULL, 0, 0);
+        }
+
+        closedir(dp);
+    }
+
+    return 0;
+}
+```
+Berfungsi sebagai dasar pada *Gateaway* setiap file pada sistem FUSE `maimai_fs` di seluruh area chiho (`starter`, `metro`, `dragon`, dsb) dan bekerja dengan menyediakan direktori virtual `/7sref/<kode_area>_<namafile>` yang *redirect* operasi ke area Chiho lain (`starter`, `metro`, dll.) dan sebagai area spesial yang dapat mengakses semua area lain melalui sistem penamaan khusus setiap area. Secara sederhana, mekanisme utamanya bekerja sebagai berikut:
+
+Mekanisme dasar `7sref area` :
+-   File yang diakses di `/7sref/` harus mengikuti format:
+    
+    `<area>_<namafile>` 
+    
+    Misalnya:
+    
+    -   `fuse_dir/starter/test.txt <-> fuse_dir/7sref/starter_test.txt`
+        
+    -   `fuse_dir/heaven/test.txt <-> fuse_dir/7sref/heaven_test.txt``
+        
+-   Area ini menjadi **"jendela ke semua area"**.
+
+Dengan mekanisme komponen utama :
+
+**1. `parse_7sref_path(relpath, area_out, file_out)`**
+
+-   Memisahkan path `starter_intro` menjadi:
+    
+    -   `area = "starter"`
+        
+    -   `file = "intro"`
+        
+-   Validasi: harus ada `_` sebagai pemisah.
+
+**2. Fungsi-fungsi `sref_*()`:**
+|Fungsi|Tugas|
+|---|---|
+|`sref_getattr()`|Redirect ke `maimai_getattr()` dengan path `/area/file`|
+|`sref_readdir()`|Gabungkan isi dari semua area, beri prefix area_, tampilkan|
+|`sref_read()`|Redirect ke `maimai_read("/area/file")`|
+|`sref_write()`|Redirect ke `maimai_write("/area/file")`|
+|`sref_create()`|Redirect ke `maimai_create("/area/file")`|
+|`sref_unlink()`|Redirect ke `maimai_unlink("/area/file")`|
 
 ---
 
