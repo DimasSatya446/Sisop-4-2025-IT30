@@ -836,7 +836,14 @@ a
 
 ## Revisi
 ### Revisi soal_1
-Perubahan logic fungsi untuk mengubah file `.txt` ke `image`
+- Pakai full path, untuk path ke directorynya
+  ```sh
+  #define ANOMALI_DIR "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali"
+  #define IMAGE_DIR "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali/image"
+  #define LOG_FILE "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali/conversion.log"
+  #define ZIP_FILE "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali.zip"
+  ```
+- Perubahan logic fungsi untuk mengubah file `.txt` ke `image`
 ```sh
 void convert_hex_to_image(const char *filename_txt) {
     FILE *input = fopen(filename_txt, "r");
@@ -987,10 +994,58 @@ void process_all_files() {
 - Mencari file dengan ekstensi `.txt`
 - Membuat path lengkap untuk setiap file
 - Memanggil `convert_hex_to_image()` untuk setiap file `.txt`
+- Update `hexed_readdir()` untuk mengisi directory image di mount
+  ```sh
+  static int hexed_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+                         off_t offset, struct fuse_file_info *fi,
+                         enum fuse_readdir_flags flags) {
+    (void) offset;
+    (void) fi;
+    (void) flags;
 
+    if (strcmp(path, "/") == 0) {
+        filler(buf, ".", NULL, 0, 0);
+        filler(buf, "..", NULL, 0, 0);
+
+        DIR *dir = opendir(ANOMALI_DIR);
+        if (!dir)
+            return -errno;
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            // Abaikan direktori 'image' agar tidak muncul di root
+            if (strcmp(entry->d_name, "image") == 0)
+                continue;
+
+            filler(buf, entry->d_name, NULL, 0, 0);
+        }
+        closedir(dir);
+
+        filler(buf, "image", NULL, 0, 0); // Tambahkan image sebagai virtual dir
+        return 0;
+    }
+
+    if (strcmp(path, "/image") == 0) {
+        filler(buf, ".", NULL, 0, 0);
+        filler(buf, "..", NULL, 0, 0);
+
+        DIR *img_dir = opendir(IMAGE_DIR);
+        if (!img_dir)
+            return -errno;
+
+        struct dirent *entry;
+        while ((entry = readdir(img_dir)) != NULL) {
+            filler(buf, entry->d_name, NULL, 0, 0);
+        }
+        closedir(img_dir);
+        return 0;
+    }
+
+    return -ENOENT;}
+  ```
 ### Output after revisi
-![image](https://github.com/user-attachments/assets/c6888ce9-e31e-41b8-ae66-6f3647e9ecd4)
-
+![Screenshot 2025-05-23 212302](https://github.com/user-attachments/assets/ae685431-12fd-4417-9ba7-23cb5e5876a1)
+![Screenshot 2025-05-23 212314](https://github.com/user-attachments/assets/03cbc126-f72f-4421-9fb9-d8613fd1f423)
 ![image](https://github.com/user-attachments/assets/31fa833b-43da-475b-9cbb-156971cffef1)
 
 ### Revisi soal_3
