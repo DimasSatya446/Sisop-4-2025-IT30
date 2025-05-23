@@ -383,7 +383,13 @@ void log_conversion(const char* input_file, const char* output_file) {
         timestamp, input_file, output_file);` Menulis entri log ke file dengan format yang diinginkan.
 
 ---
+### Run Command
+```sh
+gcc -D_FILE_OFFSET_BITS=64 hexed.c -o hexed `pkg-config --cflags --libs fuse3`
+mkdir -p mnt
+./hexed mnt
 
+```
 ## soal_2
 a
 
