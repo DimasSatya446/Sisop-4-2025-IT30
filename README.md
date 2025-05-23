@@ -381,164 +381,6 @@ void log_conversion(const char* input_file, const char* output_file) {
   - Keluar dari fungsi.
 - `fprintf(log, "[%s]: Successfully converted hexadecimal text %s to %s\n",
         timestamp, input_file, output_file);` Menulis entri log ke file dengan format yang diinginkan.
-### Revisi
-Perubahan logic fungsi untuk mengubah file `.txt` ke `image`
-```sh
-void convert_hex_to_image(const char *filename_txt) {
-    FILE *input = fopen(filename_txt, "r");
-    if (!input) return;
-
-    const char *basename = strrchr(filename_txt, '/');
-    basename = (basename) ? basename + 1 : filename_txt;
-
-    char name_only[64] = {0};
-    strncpy(name_only, basename, strcspn(basename, "."));
-
-    char date[16], time[16];
-    get_timestamp(date, sizeof(date), time, sizeof(time));
-
-    // Buat direktori image
-    struct stat st = {0};
-    if (stat(IMAGE_DIR, &st) == -1) {
-        #ifdef _WIN32
-            _mkdir(IMAGE_DIR);
-        #else
-            mkdir(IMAGE_DIR, 0755);
-        #endif
-    }
-
-    char output_path[256];
-    snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR, name_only, date, time);
-    FILE *output = fopen(output_path, "wb");
-    if (!output) {
-        fclose(input);
-        return;
-    }
-
-    char hex[3];
-    int c, count = 0;
-    while ((c = fgetc(input)) != EOF) {
-        if (isxdigit(c)) {
-            hex[count++] = c;
-            if (count == 2) {
-                hex[2] = '\0';
-                unsigned char byte = strtol(hex, NULL, 16);
-                fwrite(&byte, 1, 1, output);
-                count = 0;
-            }
-        }
-    }
-
-    fclose(input);
-    fclose(output);
-
-    log_conversion(basename, output_path, date, time);
-}
-```
-- Membuka File Input `FILE *input = fopen(filename_txt, "r");
-if (!input) return;`
-  - Membuka file teks untuk dibaca
-  - Return jika gagal membuka file
-- ```
-  const char *basename = strrchr(filename_txt, '/');
-  basename = (basename) ? basename + 1 : filename_txt;
-  char name_only[64] = {0};
-  strncpy(name_only, basename, strcspn(basename, "."));
-  ```
-  - Mengambil nama file dari path lengkap
-  - Menghapus ekstensi file
-- Membuat Timestamp
-  ```
-  char date[16], time[16];
-  get_timestamp(date, sizeof(date), time, sizeof(time));
-  ```
-  - Mengambil tanggal dan waktu saat ini untuk nama file
-- Membuat Direktori Output
-  ```
-  struct stat st = {0};
-  if (stat(IMAGE_DIR, &st) == -1) {
-    #ifdef _WIN32
-        _mkdir(IMAGE_DIR);
-    #else
-        mkdir(IMAGE_DIR, 0755);
-    #endif
-  }
-  ```
-  - Mengecek dan membuat direktori image jika belum ada
-  - Menggunakan kondisional kompilasi untuk Windows/Unix
-- Membuat dan Membuka File Output
-  ```
-  char output_path[256];
-  snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR,
-  name_only, date, time);
-  FILE *output = fopen(output_path, "wb");
-  ```
-  - Membuat nama file output dengan format: `[nama]_image_[tanggal]_[waktu].png`
-  - Membuka file dalam mode binary write
-- Proses Konversi
-  ```
-  char hex[3];
-  int c, count = 0;
-  while ((c = fgetc(input)) != EOF) {
-    if (isxdigit(c)) {
-        hex[count++] = c;
-        if (count == 2) {
-            hex[2] = '\0';
-            unsigned char byte = strtol(hex, NULL, 16);
-            fwrite(&byte, 1, 1, output);
-            count = 0;
-        }
-    }
-  }
-    ```
-  - Membaca file input karakter per karakter
-  - Mengumpulkan 2 karakter hex
-  - Mengkonversi hex ke byte
-  - Menulis byte ke file output
-- Cleanup dan Logging
-  ```
-  fclose(input);
-  fclose(output);
-  log_conversion(basename, output_path, date, time);
-    ```
-```sh
-// Proses semua file txt di anomali/
-void process_all_files() {
-    DIR *dir = opendir(ANOMALI_DIR);
-    if (!dir) return;
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (strstr(entry->d_name, ".txt")) {
-            char full_path[256];
-            snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
-            convert_hex_to_image(full_path);
-        }
-    }
-    closedir(dir);
-}
-```
-- Iterasi file
-  ```
-  struct dirent *entry;
-  while ((entry = readdir(dir)) != NULL) {
-    if (strstr(entry->d_name, ".txt")) {
-        char full_path[256];
-        snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
-        convert_hex_to_image(full_path);
-    }
-  }
-    ```
-- Membaca setiap entry dalam direktori
-- Mencari file dengan ekstensi `.txt`
-- Membuat path lengkap untuk setiap file
-- Memanggil `convert_hex_to_image()` untuk setiap file `.txt`
-
-### Output after revisi
-![image](https://github.com/user-attachments/assets/c6888ce9-e31e-41b8-ae66-6f3647e9ecd4)
-
-![image](https://github.com/user-attachments/assets/31fa833b-43da-475b-9cbb-156971cffef1)
-
 
 ---
 
@@ -993,6 +835,164 @@ a
 ---
 
 ## Revisi
+### Revisi soal_1
+Perubahan logic fungsi untuk mengubah file `.txt` ke `image`
+```sh
+void convert_hex_to_image(const char *filename_txt) {
+    FILE *input = fopen(filename_txt, "r");
+    if (!input) return;
+
+    const char *basename = strrchr(filename_txt, '/');
+    basename = (basename) ? basename + 1 : filename_txt;
+
+    char name_only[64] = {0};
+    strncpy(name_only, basename, strcspn(basename, "."));
+
+    char date[16], time[16];
+    get_timestamp(date, sizeof(date), time, sizeof(time));
+
+    // Buat direktori image
+    struct stat st = {0};
+    if (stat(IMAGE_DIR, &st) == -1) {
+        #ifdef _WIN32
+            _mkdir(IMAGE_DIR);
+        #else
+            mkdir(IMAGE_DIR, 0755);
+        #endif
+    }
+
+    char output_path[256];
+    snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR, name_only, date, time);
+    FILE *output = fopen(output_path, "wb");
+    if (!output) {
+        fclose(input);
+        return;
+    }
+
+    char hex[3];
+    int c, count = 0;
+    while ((c = fgetc(input)) != EOF) {
+        if (isxdigit(c)) {
+            hex[count++] = c;
+            if (count == 2) {
+                hex[2] = '\0';
+                unsigned char byte = strtol(hex, NULL, 16);
+                fwrite(&byte, 1, 1, output);
+                count = 0;
+            }
+        }
+    }
+
+    fclose(input);
+    fclose(output);
+
+    log_conversion(basename, output_path, date, time);
+}
+```
+- Membuka File Input `FILE *input = fopen(filename_txt, "r");
+if (!input) return;`
+  - Membuka file teks untuk dibaca
+  - Return jika gagal membuka file
+- ```
+  const char *basename = strrchr(filename_txt, '/');
+  basename = (basename) ? basename + 1 : filename_txt;
+  char name_only[64] = {0};
+  strncpy(name_only, basename, strcspn(basename, "."));
+  ```
+  - Mengambil nama file dari path lengkap
+  - Menghapus ekstensi file
+- Membuat Timestamp
+  ```
+  char date[16], time[16];
+  get_timestamp(date, sizeof(date), time, sizeof(time));
+  ```
+  - Mengambil tanggal dan waktu saat ini untuk nama file
+- Membuat Direktori Output
+  ```
+  struct stat st = {0};
+  if (stat(IMAGE_DIR, &st) == -1) {
+    #ifdef _WIN32
+        _mkdir(IMAGE_DIR);
+    #else
+        mkdir(IMAGE_DIR, 0755);
+    #endif
+  }
+  ```
+  - Mengecek dan membuat direktori image jika belum ada
+  - Menggunakan kondisional kompilasi untuk Windows/Unix
+- Membuat dan Membuka File Output
+  ```
+  char output_path[256];
+  snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR,
+  name_only, date, time);
+  FILE *output = fopen(output_path, "wb");
+  ```
+  - Membuat nama file output dengan format: `[nama]_image_[tanggal]_[waktu].png`
+  - Membuka file dalam mode binary write
+- Proses Konversi
+  ```
+  char hex[3];
+  int c, count = 0;
+  while ((c = fgetc(input)) != EOF) {
+    if (isxdigit(c)) {
+        hex[count++] = c;
+        if (count == 2) {
+            hex[2] = '\0';
+            unsigned char byte = strtol(hex, NULL, 16);
+            fwrite(&byte, 1, 1, output);
+            count = 0;
+        }
+    }
+  }
+    ```
+  - Membaca file input karakter per karakter
+  - Mengumpulkan 2 karakter hex
+  - Mengkonversi hex ke byte
+  - Menulis byte ke file output
+- Cleanup dan Logging
+  ```
+  fclose(input);
+  fclose(output);
+  log_conversion(basename, output_path, date, time);
+    ```
+```sh
+// Proses semua file txt di anomali/
+void process_all_files() {
+    DIR *dir = opendir(ANOMALI_DIR);
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, ".txt")) {
+            char full_path[256];
+            snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
+            convert_hex_to_image(full_path);
+        }
+    }
+    closedir(dir);
+}
+```
+- Iterasi file
+  ```
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strstr(entry->d_name, ".txt")) {
+        char full_path[256];
+        snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
+        convert_hex_to_image(full_path);
+    }
+  }
+    ```
+- Membaca setiap entry dalam direktori
+- Mencari file dengan ekstensi `.txt`
+- Membuat path lengkap untuk setiap file
+- Memanggil `convert_hex_to_image()` untuk setiap file `.txt`
+
+### Output after revisi
+![image](https://github.com/user-attachments/assets/c6888ce9-e31e-41b8-ae66-6f3647e9ecd4)
+
+![image](https://github.com/user-attachments/assets/31fa833b-43da-475b-9cbb-156971cffef1)
+
 ### Revisi soal_3
 - sebelum:
 Tidak dapat melihat isi dari it24_host tanpa mount
