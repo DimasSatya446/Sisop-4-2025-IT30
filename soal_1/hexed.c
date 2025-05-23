@@ -1,4 +1,4 @@
-#define FUSE_USE_VERSION 30
+#define FUSE_USE_VERSION 31
 
 #include <fuse.h>
 #include <stdio.h>
@@ -10,86 +10,138 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <ctype.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 // Path direktori utama
-#define ANOMALI_DIR "anomali"
-#define IMAGE_DIR "anomali/image"
-#define LOG_FILE "anomali/conversion.log"
+#define ANOMALI_DIR "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali"
+#define IMAGE_DIR "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali/image"
+#define LOG_FILE "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali/conversion.log"
+#define ZIP_FILE "/home/riverz/PraktikumSisop/Sisop-4-2025-IT30/soal_1/anomali.zip"
+
+const char *DOWNLOAD_URL = "https://drive.usercontent.google.com/u/0/uc?id=1hi_GDdP51Kn2JJMw02WmCOxuc3qrXzh5&export=download ";
+
+void run_command(const char *cmd[]) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execvp(cmd[0], (char *const *)cmd);  // Casting diperlukan karena execvp butuh char *const[]
+        perror("execvp gagal");
+        exit(EXIT_FAILURE);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
+
+void download_then_unzip() {
+    struct stat st;
+
+    if (stat(ANOMALI_DIR, &st) == 0 && S_ISDIR(st.st_mode)) {
+        printf("Direktori %s sudah ada, skip download.\n", ANOMALI_DIR);
+        return;
+    }
+
+    printf("Downloading ZIP...\n");
+
+    const char *wget_cmd[] = {"wget", DOWNLOAD_URL, "-O", ZIP_FILE, NULL};
+    run_command(wget_cmd);
+
+    const char *unzip_cmd[] = {"unzip", ZIP_FILE, "-d", ".", NULL};
+    run_command(unzip_cmd);
+
+    unlink(ZIP_FILE);
+
+    printf("Download dan ekstraksi selesai.\n");
+}
 
 // Buat timestamp untuk nama file dan log
-char* get_timestamp() {
+void get_timestamp(char *date_str, size_t size1, char *time_str, size_t size2) {
     time_t rawtime;
     struct tm* timeinfo;
-    char* buffer = malloc(30);
     time(&rawtime);
     timeinfo = localtime(&rawtime);
-    strftime(buffer, 30, "%Y-%m-%d_%H:%M:%S", timeinfo);
-    return buffer;
+    strftime(date_str, size1, "%Y-%m-%d", timeinfo);
+    strftime(time_str, size2, "%H:%M:%S", timeinfo);
 }
 
 // Simpan log konversi
-void log_conversion(const char* input_file, const char* output_file) {
-    char* timestamp = get_timestamp();
+void log_conversion(const char* input_file, const char* output_file, const char* date, const char* time) {
     FILE* log = fopen(LOG_FILE, "a");
-    if (!log) {
-        perror("fopen log");
-        free(timestamp);
-        return;
-    }
+    if (!log) return;
 
-    fprintf(log, "[%s]: Successfully converted hexadecimal text %s to %s\n",
-            timestamp, input_file, output_file);
+    fprintf(log, "[%s][%s]: Successfully converted hexadecimal text %s to %s\n",
+            date, time, input_file, output_file);
 
     fclose(log);
-    free(timestamp);
 }
 
-// Konversi hex string ke binary
-unsigned char* hex_to_binary(const char* hex, size_t* out_len) {
-    size_t len = strlen(hex);
-    if (len % 2 != 0) {
-        fprintf(stderr, "Invalid hex string length\n");
-        return NULL;
+// Konversi satu file .txt ke .png
+void convert_hex_to_image(const char *filename_txt) {
+    FILE *input = fopen(filename_txt, "r");
+    if (!input) return;
+
+    const char *basename = strrchr(filename_txt, '/');
+    basename = (basename) ? basename + 1 : filename_txt;
+
+    char name_only[64] = {0};
+    strncpy(name_only, basename, strcspn(basename, "."));
+
+    char date[16], time[16];
+    get_timestamp(date, sizeof(date), time, sizeof(time));
+
+    // Buat direktori image
+    struct stat st = {0};
+    if (stat(IMAGE_DIR, &st) == -1) {
+        #ifdef _WIN32
+            _mkdir(IMAGE_DIR);
+        #else
+            mkdir(IMAGE_DIR, 0755);
+        #endif
     }
 
-    *out_len = len / 2;
-    unsigned char* binary = malloc(*out_len);
-    if (!binary) {
-        perror("malloc");
-        return NULL;
-    }
-
-    for (size_t i = 0; i < len; i += 2) {
-        char byte_str[3] = {hex[i], hex[i + 1], '\0'};
-        int val = strtol(byte_str, NULL, 16);
-        binary[i / 2] = (unsigned char)val;
-    }
-
-    return binary;
-}
-
-// Simpan data biner sebagai file .png
-void save_binary_to_png(const unsigned char* data, size_t bin_len, const char* filename) {
-    FILE* fp = fopen(filename, "wb");
-    if (!fp) {
-        perror("fopen png");
+    char output_path[256];
+    snprintf(output_path, sizeof(output_path), "%s/%s_image_%s_%s.png", IMAGE_DIR, name_only, date, time);
+    FILE *output = fopen(output_path, "wb");
+    if (!output) {
+        fclose(input);
         return;
     }
 
-    fwrite(data, 1, bin_len, fp);
-    fclose(fp);
+    char hex[3];
+    int c, count = 0;
+    while ((c = fgetc(input)) != EOF) {
+        if (isxdigit(c)) {
+            hex[count++] = c;
+            if (count == 2) {
+                hex[2] = '\0';
+                unsigned char byte = strtol(hex, NULL, 16);
+                fwrite(&byte, 1, 1, output);
+                count = 0;
+            }
+        }
+    }
+
+    fclose(input);
+    fclose(output);
+
+    log_conversion(basename, output_path, date, time);
 }
 
-// Buat direktori jika belum ada
-void create_dir_if_not_exists(const char* path) {
-    struct stat st = {0};
-    if (stat(path, &st) == -1) {
-        #ifdef _WIN32
-            _mkdir(path);
-        #else
-            mkdir(path, 0777);
-        #endif
+// Proses semua file txt di anomali/
+void process_all_files() {
+    DIR *dir = opendir(ANOMALI_DIR);
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, ".txt")) {
+            char full_path[256];
+            snprintf(full_path, sizeof(full_path), "%s/%s", ANOMALI_DIR, entry->d_name);
+            convert_hex_to_image(full_path);
+        }
     }
+    closedir(dir);
 }
 
 // --- FUSE Operations ---
@@ -103,65 +155,83 @@ static int hexed_getattr(const char* path, struct stat* stbuf, struct fuse_file_
         return 0;
     }
 
-    // Cek apakah adalah file txt
-    if (strstr(path, ".txt")) {
-        stbuf->st_mode = S_IFREG | 0444;
-        stbuf->st_nlink = 1;
-        stbuf->st_size = 0;
-
-        // Baca ukuran asli file txt untuk lebih akurat
-        char full_path[256];
-        snprintf(full_path, sizeof(full_path), "%s%s.txt", ANOMALI_DIR, path + 1);
-        FILE* f = fopen(full_path, "r");
-        if (f) {
-            fseek(f, 0, SEEK_END);
-            stbuf->st_size = ftell(f) / 2; // Hex -> Binary
-            fclose(f);
-        }
-
-        return 0;
-    }
-
-    // Untuk direktori image
     char full_path[256];
     snprintf(full_path, sizeof(full_path), "%s%s", ANOMALI_DIR, path);
+
+    // Cek apakah adalah file txt
+    if (strstr(path, ".txt")) {
+        char img_path[256] = {0};
+        const char *filename = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+        char name_only[64] = {0};
+        strncpy(name_only, filename, strcspn(filename, "."));
+        DIR *img_dir = opendir(IMAGE_DIR);
+        if (img_dir) {
+            struct dirent *de;
+            while ((de = readdir(img_dir)) != NULL) {
+                if (strstr(de->d_name, name_only) && strstr(de->d_name, ".png")) {
+                    snprintf(img_path, sizeof(img_path), "%s/%s", IMAGE_DIR, de->d_name);
+                    break;
+                }
+            }
+            closedir(img_dir);
+        }
+
+        if (strlen(img_path) > 0) {
+            return lstat(img_path, stbuf);
+        } else {
+            return lstat(full_path, stbuf);
+        }
+    }
+
     if (access(full_path, F_OK) == 0) {
-        struct stat s;
-        if (stat(full_path, &s) == -1) return -errno;
-        *stbuf = s;
-        return 0;
+        return lstat(full_path, stbuf);
     }
 
     return -ENOENT;
 }
 
-static int hexed_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
-                         off_t offset, struct fuse_file_info* fi, enum fuse_readdir_flags flags) {
-    (void)offset; (void)fi; (void)flags;
-
-    filler(buf, ".", NULL, 0);
-    filler(buf, "..", NULL, 0);
+static int hexed_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+                         off_t offset, struct fuse_file_info *fi,
+                         enum fuse_readdir_flags flags) {
+    (void) offset;
+    (void) fi;
+    (void) flags;
 
     if (strcmp(path, "/") == 0) {
-        for (int i = 1; i <= 7; i++) {
-            char name[256];
-            snprintf(name, sizeof(name), "%d.txt", i);
-            filler(buf, name, NULL, 0);
+        filler(buf, ".", NULL, 0, 0);
+        filler(buf, "..", NULL, 0, 0);
+
+        DIR *dir = opendir(ANOMALI_DIR);
+        if (!dir)
+            return -errno;
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            // Abaikan direktori 'image' agar tidak muncul di root
+            if (strcmp(entry->d_name, "image") == 0)
+                continue;
+
+            filler(buf, entry->d_name, NULL, 0, 0);
         }
-        filler(buf, "image", NULL, 0);
+        closedir(dir);
+
+        filler(buf, "image", NULL, 0, 0); // Tambahkan image sebagai virtual dir
         return 0;
     }
 
-    // Untuk direktori image
     if (strcmp(path, "/image") == 0) {
-        DIR* dir = opendir(IMAGE_DIR);
-        if (!dir) return -errno;
+        filler(buf, ".", NULL, 0, 0);
+        filler(buf, "..", NULL, 0, 0);
 
-        struct dirent* entry;
-        while ((entry = readdir(dir)) != NULL) {
-            filler(buf, entry->d_name, NULL, 0);
+        DIR *img_dir = opendir(IMAGE_DIR);
+        if (!img_dir)
+            return -errno;
+
+        struct dirent *entry;
+        while ((entry = readdir(img_dir)) != NULL) {
+            filler(buf, entry->d_name, NULL, 0, 0);
         }
-        closedir(dir);
+        closedir(img_dir);
         return 0;
     }
 
@@ -170,47 +240,69 @@ static int hexed_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
 
 static int hexed_open(const char* path, struct fuse_file_info* fi) {
     if (!strstr(path, ".txt")) return -EINVAL;
+
+    char img_path[256] = {0};
+    const char *filename = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+    char name_only[64] = {0};
+    strncpy(name_only, filename, strcspn(filename, "."));
+    DIR *img_dir = opendir(IMAGE_DIR);
+    if (img_dir) {
+        struct dirent *de;
+        while ((de = readdir(img_dir)) != NULL) {
+            if (strstr(de->d_name, name_only) && strstr(de->d_name, ".png")) {
+                snprintf(img_path, sizeof(img_path), "%s/%s", IMAGE_DIR, de->d_name);
+                break;
+            }
+        }
+        closedir(img_dir);
+    }
+
+    char full_path[256];
+    snprintf(full_path, sizeof(full_path), "%s%s", ANOMALI_DIR, path);
+
+    const char *target_path = strlen(img_path) > 0 ? img_path : full_path;
+
+    int res = open(target_path, fi->flags);
+    if (res == -1)
+        return -errno;
+    close(res);
     return 0;
 }
 
 static int hexed_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
-    if (!strstr(path, ".txt")) return -EINVAL;
+    (void)fi;
 
-    char* filename = strrchr(path, '/') ? strrchr(path, '/') + 1 : (char*)path + 1;
+    char img_path[256] = {0};
+    const char *filename = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+    char name_only[64] = {0};
+    strncpy(name_only, filename, strcspn(filename, "."));
+    DIR *img_dir = opendir(IMAGE_DIR);
+    if (img_dir) {
+        struct dirent *de;
+        while ((de = readdir(img_dir)) != NULL) {
+            if (strstr(de->d_name, name_only) && strstr(de->d_name, ".png")) {
+                snprintf(img_path, sizeof(img_path), "%s/%s", IMAGE_DIR, de->d_name);
+                break;
+            }
+        }
+        closedir(img_dir);
+    }
 
-    char full_txt_path[256];
-    snprintf(full_txt_path, sizeof(full_txt_path), "%s/%s", ANOMALI_DIR, filename);
+    char full_path[256];
+    snprintf(full_path, sizeof(full_path), "%s%s", ANOMALI_DIR, path);
 
-    FILE* txt_file = fopen(full_txt_path, "r");
-    if (!txt_file) return -errno;
+    const char *target_path = strlen(img_path) > 0 ? img_path : full_path;
 
-    char hex_buffer[10240];
-    size_t hex_len = fread(hex_buffer, 1, sizeof(hex_buffer), txt_file);
-    fclose(txt_file);
+    int fd = open(target_path, O_RDONLY);
+    if (fd == -1)
+        return -errno;
 
-    if (hex_len == 0) return 0;
+    int res = pread(fd, buf, size, offset);
+    if (res == -1)
+        res = -errno;
 
-    size_t bin_len;
-    unsigned char* binary = hex_to_binary(hex_buffer, &bin_len);
-    if (!binary) return -EINVAL;
-
-    // Simpan gambar di folder image
-    char* timestamp = get_timestamp();
-    char image_path[256];
-    snprintf(image_path, sizeof(image_path), "%s/%s_image_%s.png", IMAGE_DIR, filename, timestamp);
-
-    create_dir_if_not_exists(IMAGE_DIR);
-    save_binary_to_png(binary, bin_len, image_path);
-    log_conversion(filename, image_path);
-
-    // Salin binary ke buffer fuse (bisa juga gunakan hex_buffer tergantung tujuan)
-    size_t len = (offset + size > bin_len) ? bin_len - offset : size;
-    memcpy(buf, binary + offset, len);
-
-    free(binary);
-    free(timestamp);
-
-    return len;
+    close(fd);
+    return res;
 }
 
 // --- FUSE Ops ---
@@ -222,6 +314,16 @@ static struct fuse_operations hexed_oper = {
 };
 
 int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <mountpoint>\n", argv[0]);
+        return 1;
+    }
+
     umask(0);
+
+    // Langkah-langkah otomatis
+    download_then_unzip();         // Step 1: Download ZIP
+    process_all_files();          // Step 2: Convert all .txt to .png
+
     return fuse_main(argc, argv, &hexed_oper, NULL);
 }
